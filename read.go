@@ -118,15 +118,22 @@ func (mp4 MP4) readBoxes(boxes MP4Boxes, parentEndsAt, level int64, p string) (M
 }
 
 func checkBoxes(boxes MP4Boxes) error {
-	paths := [5]string{
+	paths := [4]string{
 		"moov", "mdat", "moov.udta", "moov.udta.meta",
-		"moov.trak.mdia.minf.stbl.stco",
 	}
-	// "moov.udta.meta.ilst" 
+	// "moov.udta.meta.ilst" is optional before the first write.
 	for _, path := range paths {
 		if boxes.getBoxByPath(path) == nil {
 			return &ErrBoxNotPresent{Msg: path + " box not present"}
 		}
+	}
+
+	// ISO-BMFF tracks use either 32-bit stco or 64-bit co64 chunk offsets.
+	// At least one offset table must exist for tag writing to be able to move
+	// mdat without corrupting sample locations.
+	if len(boxes.getBoxesByPath("moov.trak.mdia.minf.stbl.stco")) == 0 &&
+		len(boxes.getBoxesByPath("moov.trak.mdia.minf.stbl.co64")) == 0 {
+		return &ErrBoxNotPresent{Msg: "moov.trak.mdia.minf.stbl.stco or co64 box not present"}
 	}
 	return nil
 }

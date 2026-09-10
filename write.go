@@ -326,36 +326,130 @@ func putI32BE(n int32) []byte {
 }
 
 func (mp4 MP4) updateChunkOffsets(outF *os.File, boxes MP4Boxes, oldIlistSize, newIlistSize int64) error {
-	stco := boxes.getBoxByPath("moov.trak.mdia.minf.stbl.stco")
-	_, err := mp4.f.Seek(stco.StartOffset+12, io.SeekStart)
-	if err != nil {
-		return err
+	delta := newIlistSize - oldIlistSize
+	if delta == 0 {
+		return nil
 	}
-	_, err = outF.Seek(stco.StartOffset+16, io.SeekStart)
-	if err != nil {
-		return err
-	}
-	count, err := mp4.readI32BE()
-	if err != nil {
-		return err
-	}
-    if stco.BoxSize != int64(count) * 4 + 16 {
-    	return &ErrInvalidStcoSize{}
-    }
 
-    for i := int32(1);  i<=count; i++ {
-    	offset, err  := mp4.readI32BE()
-    	if err != nil {
-    		return err
-    	}
-    	offsetBytes := putI32BE(offset-int32(oldIlistSize)+int32(newIlistSize))
-    	_, err = outF.Write(offsetBytes)
-    	if err != nil {
-    		return err
-    	}
-    }
+	stcos := boxes.getBoxesByPath("moov.trak.mdia.minf.stbl.stco")
+	co64s := boxes.getBoxesByPath("moov.trak.mdia.minf.stbl.co64")
+	if len(stcos) == 0 && len(co64s) == 0 {
+		return &ErrBoxNotPresent{Msg: "moov.trak.mdia.minf.stbl.stco or co64 box not present"}
+	}
 
-    return nil
+	for _, stco := range stcos {
+		if err := mp4.updateStcoChunkOffsets(outF, stco, delta); err != nil {
+			return fmt.Errorf("update stco offsets: %w", err)
+		}
+	}
+	for _, co64 := range co64s {
+		if err := mp4.updateCo64ChunkOffsets(outF, co64, delta); err != nil {
+			return fmt.Errorf("update co64 offsets: %w", err)
+		}
+	}
+	return nil
+}
+
+func (mp4 MP4) chunkOffsetCount(box *MP4Box) (int64, error) {
+	if box == nil {
+		return 0, &ErrBoxNotPresent{Msg: "chunk offset box not present"}
+	}
+	if _, err := mp4.f.Seek(box.StartOffset+12, io.SeekStart); err != nil {
+		return 0, err
+	}
+	var raw [4]byte
+	if _, err := io.ReadFull(mp4.f, raw[:]); err != nil {
+		return 0, err
+	}
+	return int64(binary.BigEndian.Uint32(raw[:])), nil
+}
+
+func (mp4 MP4) updateStcoChunkOffsets(outF *os.File, box *MP4Box, delta int64) error {
+	count, err := mp4.chunkOffsetCount(box)
+	if err != nil {
+		return err
+	}
+	if box.BoxSize != count*4+16 {
+		return &ErrInvalidStcoSize{}
+	}
+
+	if _, err := mp4.f.Seek(box.StartOffset+16, io.SeekStart); err != nil {
+		return err
+	}
+	if _, err := outF.Seek(box.StartOffset+16, io.SeekStart); err != nil {
+		return err
+	}
+
+	const maxUint32 = uint64(^uint32(0))
+	var raw [4]byte
+	for i := int64(0); i < count; i++ {
+		if _, err := io.ReadFull(mp4.f, raw[:]); err != nil {
+			return err
+		}
+		offset := uint64(binary.BigEndian.Uint32(raw[:]))
+		adjusted, err := adjustChunkOffset(offset, delta)
+		if err != nil {
+			return err
+		}
+		if adjusted > maxUint32 {
+			return fmt.Errorf("offset %d exceeds 32-bit stco range", adjusted)
+		}
+		binary.BigEndian.PutUint32(raw[:], uint32(adjusted))
+		if _, err := outF.Write(raw[:]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (mp4 MP4) updateCo64ChunkOffsets(outF *os.File, box *MP4Box, delta int64) error {
+	count, err := mp4.chunkOffsetCount(box)
+	if err != nil {
+		return err
+	}
+	if box.BoxSize != count*8+16 {
+		return fmt.Errorf("co64 size is invalid")
+	}
+
+	if _, err := mp4.f.Seek(box.StartOffset+16, io.SeekStart); err != nil {
+		return err
+	}
+	if _, err := outF.Seek(box.StartOffset+16, io.SeekStart); err != nil {
+		return err
+	}
+
+	var raw [8]byte
+	for i := int64(0); i < count; i++ {
+		if _, err := io.ReadFull(mp4.f, raw[:]); err != nil {
+			return err
+		}
+		offset := binary.BigEndian.Uint64(raw[:])
+		adjusted, err := adjustChunkOffset(offset, delta)
+		if err != nil {
+			return err
+		}
+		binary.BigEndian.PutUint64(raw[:], adjusted)
+		if _, err := outF.Write(raw[:]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func adjustChunkOffset(offset uint64, delta int64) (uint64, error) {
+	if delta >= 0 {
+		add := uint64(delta)
+		if offset > ^uint64(0)-add {
+			return 0, fmt.Errorf("chunk offset overflows uint64")
+		}
+		return offset + add, nil
+	}
+
+	sub := uint64(-delta)
+	if offset < sub {
+		return 0, fmt.Errorf("chunk offset %d is smaller than adjustment %d", offset, sub)
+	}
+	return offset - sub, nil
 }
 
 func (mp4 MP4) readToOffset(f *os.File, startOffset int64) error {
