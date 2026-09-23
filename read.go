@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -86,7 +87,29 @@ func (mp4 MP4) readBoxes(boxes MP4Boxes, parentEndsAt, level int64, p string) (M
 	if err != nil {
 		return empty, err
 	}
-	boxSize := int64(boxSizeI32)
+	// ISO/IEC 14496-12: size is unsigned; 1 means a 64-bit largesize
+	// follows the type, 0 means the box extends to the end of its parent.
+	boxSize := int64(uint32(boxSizeI32))
+	headerSize := int64(8)
+	switch boxSize {
+	case 1:
+		buf := make([]byte, 8)
+		_, err = io.ReadFull(mp4.f, buf)
+		if err != nil {
+			return empty, err
+		}
+		largeSize := binary.BigEndian.Uint64(buf)
+		if largeSize > math.MaxInt64 {
+			return empty, fmt.Errorf("%s box at %d: largesize %d is too large", boxName, pos, largeSize)
+		}
+		boxSize = int64(largeSize)
+		headerSize = 16
+	case 0:
+		boxSize = parentEndsAt - pos
+	}
+	if boxSize < headerSize {
+		return empty, fmt.Errorf("%s box at %d: invalid size %d", boxName, pos, boxSize)
+	}
 	endsAt := pos + boxSize
 	if boxName == "meta" {
 		_, err = mp4.f.Seek(4, io.SeekCurrent)
@@ -99,6 +122,7 @@ func (mp4 MP4) readBoxes(boxes MP4Boxes, parentEndsAt, level int64, p string) (M
 		StartOffset: pos,
 		EndOffset:   endsAt,
 		BoxSize:	 boxSize,
+		HeaderSize:  headerSize,
 		Path:        p[1:],
 	}
 	boxes.Boxes = append(boxes.Boxes, box)

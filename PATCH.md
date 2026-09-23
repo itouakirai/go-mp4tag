@@ -10,3 +10,9 @@ Changes:
 - Update every `moov.trak.mdia.minf.stbl.co64` table for 64-bit chunk offsets.
 - Reject 32-bit overflow and negative underflow instead of wrapping offsets.
 - Add unit coverage for multiple tracks, `co64`, and invalid offsets.
+- Parse box sizes per ISO/IEC 14496-12: read the 32-bit size as unsigned
+  (boxes of 2 GiB-4 GiB no longer seek before the start of the file),
+  support 64-bit `largesize` (size 1) and size 0 (box extends to the end of
+  its parent), and reject sizes smaller than the header instead of looping.
+- Refuse to resize `moov`/`udta`/`meta`/`ilst` in place when they use a
+  64-bit size header or would outgrow 32 bits, rather than corrupting them.

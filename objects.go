@@ -69,6 +69,7 @@ type MP4Box struct {
 	StartOffset int64
 	EndOffset   int64
 	BoxSize     int64
+	HeaderSize  int64 // 8, or 16 when the box uses a 64-bit largesize
 	Path        string
 }
 

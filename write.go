@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -889,6 +890,25 @@ func resizeBoxes(f *os.File, boxes MP4Boxes, oldIlstSize, newIlistSize int64) er
 	moov := boxes.getBoxByPath("moov")
 	udta := boxes.getBoxByPath("moov.udta")
 	meta := boxes.getBoxByPath("moov.udta.meta")
+
+	// Sizes are rewritten in place as 32-bit fields, which only works for
+	// boxes with a normal 8-byte header whose new size still fits.
+	for _, resized := range []struct {
+		box     *MP4Box
+		newSize int64
+	}{
+		{nil, newIlistSize},
+		{moov, moov.BoxSize - oldIlstSize + newIlistSize},
+		{udta, udta.BoxSize - oldIlstSize + newIlistSize},
+		{meta, meta.BoxSize - oldIlstSize + newIlistSize},
+	} {
+		if resized.box != nil && resized.box.HeaderSize != 8 {
+			return fmt.Errorf("%s box uses a 64-bit size header; resizing it is not supported", resized.box.Path)
+		}
+		if resized.newSize > math.MaxUint32 {
+			return fmt.Errorf("resized box size %d exceeds 32 bits", resized.newSize)
+		}
+	}
 
 	sizeBytes := putI32BE(int32(newIlistSize))
 	_, err := f.Write(sizeBytes)
