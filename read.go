@@ -162,6 +162,34 @@ func checkBoxes(boxes MP4Boxes) error {
 	return nil
 }
 
+// readIntegerAtom reads a type 21 integer of the given width from an ilst
+// item, returning 0 when the item is absent.
+func (mp4 MP4) readIntegerAtom(boxes MP4Boxes, boxName string, width int) (uint16, error) {
+	box := boxes.getBoxByPath("moov.udta.meta.ilst." + boxName + ".data")
+	if box == nil {
+		return 0, nil
+	}
+	if box.BoxSize != int64(16+width) {
+		return 0, fmt.Errorf("%s: expected a %d-byte integer", boxName, width)
+	}
+	buf := make([]byte, 8+width)
+	_, err := mp4.f.Seek(box.StartOffset+8, io.SeekStart)
+	if err != nil {
+		return 0, err
+	}
+	_, err = io.ReadFull(mp4.f, buf)
+	if err != nil {
+		return 0, err
+	}
+	if binary.BigEndian.Uint32(buf[0:4]) != 21 {
+		return 0, fmt.Errorf("%s: expected integer data type 21", boxName)
+	}
+	if width == 2 {
+		return binary.BigEndian.Uint16(buf[8:10]), nil
+	}
+	return uint16(buf[8]), nil
+}
+
 func (mp4 MP4) readTag(boxes MP4Boxes, boxName string) (string, error) {
 	path := fmt.Sprintf("moov.udta.meta.ilst.%s.data", boxName)
 	box := boxes.getBoxByPath(path)
@@ -533,6 +561,36 @@ func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 		TrackNumber: trackNum,
 		TrackTotal: trackTotal,
 	}
+
+	work, err := mp4.readTag(boxes, "(c)wrk")
+	if err != nil {
+		return nil, err
+	}
+	tags.Work = work
+
+	movement, err := mp4.readTag(boxes, "(c)mvn")
+	if err != nil {
+		return nil, err
+	}
+	tags.Movement = movement
+
+	movementIndex, err := mp4.readIntegerAtom(boxes, "(c)mvi", 2)
+	if err != nil {
+		return nil, err
+	}
+	tags.MovementIndex = int16(movementIndex)
+
+	movementCount, err := mp4.readIntegerAtom(boxes, "(c)mvc", 2)
+	if err != nil {
+		return nil, err
+	}
+	tags.MovementCount = int16(movementCount)
+
+	showWorkAndMovement, err := mp4.readIntegerAtom(boxes, "shwm", 1)
+	if err != nil {
+		return nil, err
+	}
+	tags.ShowWorkAndMovement = showWorkAndMovement == 1
 
 	year, err := mp4.readTag(boxes, "(c)day")
 	if err != nil  {

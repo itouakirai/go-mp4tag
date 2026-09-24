@@ -16,3 +16,10 @@ Changes:
   its parent), and reject sizes smaller than the header instead of looping.
 - Refuse to resize `moov`/`udta`/`meta`/`ilst` in place when they use a
   64-bit size header or would outgrow 32 bits, rather than corrupting them.
+- Read and write the classical work/movement atoms: `©wrk` (Work) and
+  `©mvn` (Movement) as UTF-8 text, `©mvi` (MovementIndex) and `©mvc`
+  (MovementCount) as 2-byte type 21 integers, and `shwm`
+  (ShowWorkAndMovement) as a 1-byte type 21 flag.
+- When the chunk offset tables are stored after `ilst` (metadata before
+  `trak`), patch them at their relocated position after copying the rest
+  of the file, instead of at their old position where the copy overwrote them.

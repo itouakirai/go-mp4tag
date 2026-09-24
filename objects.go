@@ -50,6 +50,7 @@ var containers = []string{
   "trak", "mdia", "minf", "stbl", "rtng", "plID",
   "atID", "tmpo", "sonm", "soal", "soar", "soco",
   "soaa",
+  "(c)wrk", "(c)mvn", "(c)mvi", "(c)mvc", "shwm",
 }
 
 // 0-9
@@ -298,13 +299,19 @@ type MP4Tags struct {
 	ItunesAlbumID int32
 	ItunesArtistID int32
 	Lyrics string
+	Movement string
+	// MovementIndex and MovementCount use 0 for absent, otherwise 1-32767.
+	MovementIndex int16
+	MovementCount int16
 	Narrator string
 	OtherCustom map[string][]string
 	Pictures []*MP4Picture
 	Publisher string
+	ShowWorkAndMovement bool
 	Title string
 	TitleSort string
 	TrackNumber int16
 	TrackTotal int16
+	Work string
 	Year int32
 }
