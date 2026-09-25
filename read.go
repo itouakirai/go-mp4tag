@@ -162,18 +162,23 @@ func checkBoxes(boxes MP4Boxes) error {
 	return nil
 }
 
-// readIntegerAtom reads a type 21 integer of the given width from an ilst
-// item, returning 0 when the item is absent.
-func (mp4 MP4) readIntegerAtom(boxes MP4Boxes, boxName string, width int) (uint16, error) {
+// readIntegerAtom reads the big-endian signed integer (data type 21, or 0
+// for implicit) of an ilst item, clamped to 0-32767, the range MP4Tags can
+// hold. iTunes stores 1 or 2 bytes but other taggers use other widths. An
+// item that is absent or holds anything else reads as 0, so it cannot stop
+// the rest of the tags being read or written.
+func (mp4 MP4) readIntegerAtom(boxes MP4Boxes, boxName string) (int16, error) {
 	box := boxes.getBoxByPath("moov.udta.meta.ilst." + boxName + ".data")
 	if box == nil {
 		return 0, nil
 	}
-	if box.BoxSize != int64(16+width) {
-		return 0, fmt.Errorf("%s: expected a %d-byte integer", boxName, width)
+	// The value follows a 4-byte data type and a 4-byte locale.
+	width := box.BoxSize - box.HeaderSize - 8
+	if width < 1 || width > 8 {
+		return 0, nil
 	}
 	buf := make([]byte, 8+width)
-	_, err := mp4.f.Seek(box.StartOffset+8, io.SeekStart)
+	_, err := mp4.f.Seek(box.StartOffset+box.HeaderSize, io.SeekStart)
 	if err != nil {
 		return 0, err
 	}
@@ -181,13 +186,16 @@ func (mp4 MP4) readIntegerAtom(boxes MP4Boxes, boxName string, width int) (uint1
 	if err != nil {
 		return 0, err
 	}
-	if binary.BigEndian.Uint32(buf[0:4]) != 21 {
-		return 0, fmt.Errorf("%s: expected integer data type 21", boxName)
+	if dataType := binary.BigEndian.Uint32(buf[0:4]); dataType != 0 && dataType != 21 {
+		return 0, nil
 	}
-	if width == 2 {
-		return binary.BigEndian.Uint16(buf[8:10]), nil
+	var value int64
+	for _, b := range buf[8:] {
+		value = value<<8 | int64(b)
 	}
-	return uint16(buf[8]), nil
+	shift := 64 - 8*width
+	value = value << shift >> shift // sign-extend
+	return int16(min(max(value, 0), math.MaxInt16)), nil
 }
 
 func (mp4 MP4) readTag(boxes MP4Boxes, boxName string) (string, error) {
@@ -574,19 +582,19 @@ func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 	}
 	tags.Movement = movement
 
-	movementIndex, err := mp4.readIntegerAtom(boxes, "(c)mvi", 2)
+	movementIndex, err := mp4.readIntegerAtom(boxes, "(c)mvi")
 	if err != nil {
 		return nil, err
 	}
-	tags.MovementIndex = int16(movementIndex)
+	tags.MovementIndex = movementIndex
 
-	movementCount, err := mp4.readIntegerAtom(boxes, "(c)mvc", 2)
+	movementCount, err := mp4.readIntegerAtom(boxes, "(c)mvc")
 	if err != nil {
 		return nil, err
 	}
-	tags.MovementCount = int16(movementCount)
+	tags.MovementCount = movementCount
 
-	showWorkAndMovement, err := mp4.readIntegerAtom(boxes, "shwm", 1)
+	showWorkAndMovement, err := mp4.readIntegerAtom(boxes, "shwm")
 	if err != nil {
 		return nil, err
 	}

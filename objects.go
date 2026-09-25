@@ -300,7 +300,9 @@ type MP4Tags struct {
 	ItunesArtistID int32
 	Lyrics string
 	Movement string
-	// MovementIndex and MovementCount use 0 for absent, otherwise 1-32767.
+	// MovementIndex and MovementCount are 1-32767, or 0 when absent; Read
+	// clamps stored values into that range. Write keeps the stored value for
+	// 0, so delete it with "movementindex" or "movementcount".
 	MovementIndex int16
 	MovementCount int16
 	Narrator string

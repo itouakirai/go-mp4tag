@@ -120,11 +120,16 @@ Case insensitive.
 - itunesalbumid
 - itunesartistid
 - lyrics
+- movement
+- movementcount
+- movementindex
 - narrator
 - picture:<position index starting from 1>
 - publisher
+- showworkandmovement
 - title
 - titlesort
 - tracknumber
 - tracktotal
+- work
 - year
