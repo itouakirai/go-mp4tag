@@ -107,6 +107,17 @@ func ilstItem(name string, dataType uint32, value []byte) []byte {
 	return makeBox(name, makeBox("data", typeAndLocale, value))
 }
 
+// largeIlstItem is ilstItem with the data box size in a 64-bit largesize
+// field, which ISO/IEC 14496-12 allows for any box.
+func largeIlstItem(name string, dataType uint32, value []byte) []byte {
+	data := make([]byte, 24, 24+len(value))
+	binary.BigEndian.PutUint32(data[0:4], 1)
+	copy(data[4:8], "data")
+	binary.BigEndian.PutUint64(data[8:16], uint64(24+len(value)))
+	binary.BigEndian.PutUint32(data[16:20], dataType)
+	return makeBox(name, append(data, value...))
+}
+
 func TestReadToleratesIntegerAtomsFromOtherTaggers(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -123,6 +134,7 @@ func TestReadToleratesIntegerAtomsFromOtherTaggers(t *testing.T) {
 		{"negative index", ilstItem("\xa9mvi", 21, []byte{0xff, 0xff}), 0, 0, false},
 		{"text index", ilstItem("\xa9mvi", 1, []byte("12")), 0, 0, false},
 		{"9-byte index", ilstItem("\xa9mvi", 21, make([]byte, 9)), 0, 0, false},
+		{"largesize data box", largeIlstItem("\xa9mvi", 21, []byte{0, 5}), 5, 0, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -22,7 +22,9 @@ Changes:
   (ShowWorkAndMovement) as a 1-byte type 21 flag. Reading also accepts the
   1-8 byte integers of type 21 or 0 that other taggers write, clamps them
   to 0-32767, and treats any other value as absent rather than failing the
-  whole read, which every write starts with. Their deletion strings are
+  whole read, which every write starts with. Like every atom `MP4Tags` does
+  not model, a value read as absent is dropped by the next write. Their
+  deletion strings are
   `work`, `movement`, `movementindex`, `movementcount` and
   `showworkandmovement`.
 - `Write` rejects negative movement numbers, and `Write(nil, deletions)`
