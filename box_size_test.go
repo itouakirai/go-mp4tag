@@ -16,11 +16,11 @@ func makeBox(boxType string, payload ...[]byte) []byte {
 	return append(box, body...)
 }
 
-// makeTaggableMP4 builds ftyp, moov (udta/meta/ilst and one stco track),
-// and an mdat whose header is supplied by the caller.
-func makeTaggableMP4(mdatHeader []byte, mdatPayload []byte) ([]byte, int) {
+// makeTaggableMP4 builds ftyp, moov (udta/meta/ilst holding ilstItems, and
+// one stco track), and an mdat whose header is supplied by the caller.
+func makeTaggableMP4(mdatHeader []byte, mdatPayload []byte, ilstItems ...[]byte) ([]byte, int) {
 	ftyp := makeBox("ftyp", []byte("isom"), make([]byte, 4), []byte("isom"))
-	meta := makeBox("meta", make([]byte, 4), makeBox("ilst"))
+	meta := makeBox("meta", make([]byte, 4), makeBox("ilst", ilstItems...))
 	udta := makeBox("udta", meta)
 
 	// stco offset is fixed up below once the moov size is known.

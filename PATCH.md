@@ -16,3 +16,19 @@ Changes:
   its parent), and reject sizes smaller than the header instead of looping.
 - Refuse to resize `moov`/`udta`/`meta`/`ilst` in place when they use a
   64-bit size header or would outgrow 32 bits, rather than corrupting them.
+- Read and write the classical work/movement atoms: `©wrk` (Work) and
+  `©mvn` (Movement) as UTF-8 text, `©mvi` (MovementIndex) and `©mvc`
+  (MovementCount) as 2-byte type 21 integers, and `shwm`
+  (ShowWorkAndMovement) as a 1-byte type 21 flag. Reading also accepts the
+  1-8 byte integers of type 21 or 0 that other taggers write, clamps them
+  to 0-32767, and treats any other value as absent rather than failing the
+  whole read, which every write starts with. Like every atom `MP4Tags` does
+  not model, a value read as absent is dropped by the next write. Their
+  deletion strings are
+  `work`, `movement`, `movementindex`, `movementcount` and
+  `showworkandmovement`.
+- `Write` rejects negative movement numbers, and `Write(nil, deletions)`
+  applies the deletions instead of dereferencing the nil tags.
+- When the chunk offset tables are stored after `ilst` (metadata before
+  `trak`), patch them at their relocated position after copying the rest
+  of the file, instead of at their old position where the copy overwrote them.

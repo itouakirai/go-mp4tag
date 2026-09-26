@@ -24,6 +24,12 @@ func (mp4 *MP4) Write(tags *MP4Tags, delStrings []string) error {
 	if tags == nil && len(delStrings) == 0 {
 		return nil
 	}
+	if tags == nil {
+		tags = &MP4Tags{}
+	}
+	if tags.MovementIndex < 0 || tags.MovementCount < 0 {
+		return fmt.Errorf("movement index and count must not be negative")
+	}
 	err := mp4.actualWrite(tags, delStrings)
 	return err
 }

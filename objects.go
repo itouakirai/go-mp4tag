@@ -50,6 +50,7 @@ var containers = []string{
   "trak", "mdia", "minf", "stbl", "rtng", "plID",
   "atID", "tmpo", "sonm", "soal", "soar", "soco",
   "soaa",
+  "(c)wrk", "(c)mvn", "(c)mvi", "(c)mvc", "shwm",
 }
 
 // 0-9
@@ -298,13 +299,21 @@ type MP4Tags struct {
 	ItunesAlbumID int32
 	ItunesArtistID int32
 	Lyrics string
+	Movement string
+	// MovementIndex and MovementCount are 1-32767, or 0 when absent; Read
+	// clamps stored values into that range. Write keeps the stored value for
+	// 0, so delete it with "movementindex" or "movementcount".
+	MovementIndex int16
+	MovementCount int16
 	Narrator string
 	OtherCustom map[string][]string
 	Pictures []*MP4Picture
 	Publisher string
+	ShowWorkAndMovement bool
 	Title string
 	TitleSort string
 	TrackNumber int16
 	TrackTotal int16
+	Work string
 	Year int32
 }

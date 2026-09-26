@@ -124,6 +124,26 @@ func overwriteTags(mergedTags, tags *MP4Tags, delStrings []string) *MP4Tags{
 		mergedTags.Lyrics = ""
 	}
 
+	if containsStr(delStrings, "work") {
+		mergedTags.Work = ""
+	}
+
+	if containsStr(delStrings, "movement") {
+		mergedTags.Movement = ""
+	}
+
+	if containsStr(delStrings, "movementindex") {
+		mergedTags.MovementIndex = 0
+	}
+
+	if containsStr(delStrings, "movementcount") {
+		mergedTags.MovementCount = 0
+	}
+
+	if containsStr(delStrings, "showworkandmovement") {
+		mergedTags.ShowWorkAndMovement = false
+	}
+
 	if containsStr(delStrings,  "narrator") {
 		mergedTags.Narrator = ""
 	}
@@ -243,6 +263,26 @@ func overwriteTags(mergedTags, tags *MP4Tags, delStrings []string) *MP4Tags{
 		mergedTags.Lyrics = tags.Lyrics
 	}
 
+	if tags.Work != "" {
+		mergedTags.Work = tags.Work
+	}
+
+	if tags.Movement != "" {
+		mergedTags.Movement = tags.Movement
+	}
+
+	if tags.MovementIndex > 0 {
+		mergedTags.MovementIndex = tags.MovementIndex
+	}
+
+	if tags.MovementCount > 0 {
+		mergedTags.MovementCount = tags.MovementCount
+	}
+
+	if tags.ShowWorkAndMovement {
+		mergedTags.ShowWorkAndMovement = true
+	}
+
 	if tags.Narrator != "" {
 		mergedTags.Narrator = tags.Narrator
 	}
@@ -338,13 +378,21 @@ func (mp4 MP4) updateChunkOffsets(outF *os.File, boxes MP4Boxes, oldIlistSize, n
 		return &ErrBoxNotPresent{Msg: "moov.trak.mdia.minf.stbl.stco or co64 box not present"}
 	}
 
+	// Tables stored after ilst have moved by delta in the output file.
+	ilst := boxes.getBoxByPath("moov.udta.meta.ilst")
+	outOffset := func(box *MP4Box) int64 {
+		if ilst != nil && box.StartOffset >= ilst.EndOffset {
+			return box.StartOffset + delta
+		}
+		return box.StartOffset
+	}
 	for _, stco := range stcos {
-		if err := mp4.updateStcoChunkOffsets(outF, stco, delta); err != nil {
+		if err := mp4.updateStcoChunkOffsets(outF, stco, outOffset(stco), delta); err != nil {
 			return fmt.Errorf("update stco offsets: %w", err)
 		}
 	}
 	for _, co64 := range co64s {
-		if err := mp4.updateCo64ChunkOffsets(outF, co64, delta); err != nil {
+		if err := mp4.updateCo64ChunkOffsets(outF, co64, outOffset(co64), delta); err != nil {
 			return fmt.Errorf("update co64 offsets: %w", err)
 		}
 	}
@@ -365,7 +413,7 @@ func (mp4 MP4) chunkOffsetCount(box *MP4Box) (int64, error) {
 	return int64(binary.BigEndian.Uint32(raw[:])), nil
 }
 
-func (mp4 MP4) updateStcoChunkOffsets(outF *os.File, box *MP4Box, delta int64) error {
+func (mp4 MP4) updateStcoChunkOffsets(outF *os.File, box *MP4Box, outOffset, delta int64) error {
 	count, err := mp4.chunkOffsetCount(box)
 	if err != nil {
 		return err
@@ -377,7 +425,7 @@ func (mp4 MP4) updateStcoChunkOffsets(outF *os.File, box *MP4Box, delta int64) e
 	if _, err := mp4.f.Seek(box.StartOffset+16, io.SeekStart); err != nil {
 		return err
 	}
-	if _, err := outF.Seek(box.StartOffset+16, io.SeekStart); err != nil {
+	if _, err := outF.Seek(outOffset+16, io.SeekStart); err != nil {
 		return err
 	}
 
@@ -403,7 +451,7 @@ func (mp4 MP4) updateStcoChunkOffsets(outF *os.File, box *MP4Box, delta int64) e
 	return nil
 }
 
-func (mp4 MP4) updateCo64ChunkOffsets(outF *os.File, box *MP4Box, delta int64) error {
+func (mp4 MP4) updateCo64ChunkOffsets(outF *os.File, box *MP4Box, outOffset, delta int64) error {
 	count, err := mp4.chunkOffsetCount(box)
 	if err != nil {
 		return err
@@ -415,7 +463,7 @@ func (mp4 MP4) updateCo64ChunkOffsets(outF *os.File, box *MP4Box, delta int64) e
 	if _, err := mp4.f.Seek(box.StartOffset+16, io.SeekStart); err != nil {
 		return err
 	}
-	if _, err := outF.Seek(box.StartOffset+16, io.SeekStart); err != nil {
+	if _, err := outF.Seek(outOffset+16, io.SeekStart); err != nil {
 		return err
 	}
 
@@ -634,6 +682,24 @@ func writeBPM(f *os.File, bpm int16) error {
 	}
 	bpmBytes := putI16BE(bpm)
 	_, err = f.Write(bpmBytes)
+	return err
+}
+
+// writeIntegerAtom writes an ilst item holding a big-endian integer data box
+// (type 21) of the given width in bytes (1 or 2).
+func writeIntegerAtom(f *os.File, name string, value uint16, width int) error {
+	box := make([]byte, 24+width)
+	binary.BigEndian.PutUint32(box[0:4], uint32(24+width))
+	copy(box[4:8], name)
+	binary.BigEndian.PutUint32(box[8:12], uint32(16+width))
+	copy(box[12:16], "data")
+	binary.BigEndian.PutUint32(box[16:20], 21)
+	if width == 2 {
+		binary.BigEndian.PutUint16(box[24:26], value)
+	} else {
+		box[24] = byte(value)
+	}
+	_, err := f.Write(box)
 	return err
 }
 
@@ -1086,6 +1152,41 @@ func (mp4 MP4) writeTags(boxes MP4Boxes, tags *MP4Tags, tempPath string) error {
 		}
 	}
 
+	if tags.Work != "" {
+		err = writeRegular(f, "wrk", tags.Work, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	if tags.Movement != "" {
+		err = writeRegular(f, "mvn", tags.Movement, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	if tags.MovementIndex > 0 {
+		err = writeIntegerAtom(f, "\xa9mvi", uint16(tags.MovementIndex), 2)
+		if err != nil {
+			return err
+		}
+	}
+
+	if tags.MovementCount > 0 {
+		err = writeIntegerAtom(f, "\xa9mvc", uint16(tags.MovementCount), 2)
+		if err != nil {
+			return err
+		}
+	}
+
+	if tags.ShowWorkAndMovement {
+		err = writeIntegerAtom(f, "shwm", 1, 1)
+		if err != nil {
+			return err
+		}
+	}
+
 	if tags.CustomGenre != "" {
 		err = writeRegular(f, "gen", tags.CustomGenre, true)
 		if err != nil {
@@ -1202,14 +1303,6 @@ func (mp4 MP4) writeTags(boxes MP4Boxes, tags *MP4Tags, tempPath string) error {
 		return err
 	}
 
-	mdat := boxes.getBoxByPath("mdat")
-	if mdat.StartOffset > ilstStartOffset && oldIlstSize != newIlstSize {
-		err = mp4.updateChunkOffsets(f, boxes, oldIlstSize, newIlstSize)
-		if err != nil {
-			return err
-		}	
-	}
-
 	_, err = f.Seek(newIlstEndOffset, io.SeekStart)
 	if err != nil {
 		return err
@@ -1219,6 +1312,16 @@ func (mp4 MP4) writeTags(boxes MP4Boxes, tags *MP4Tags, tempPath string) error {
 		return err
 	}
 	err = mp4.writeRemaining(f)
+	if err != nil {
+		return err
+	}
+
+	// Patch offsets only after the remainder is copied, so tables stored
+	// after ilst are not overwritten by that copy.
+	mdat := boxes.getBoxByPath("mdat")
+	if mdat.StartOffset > ilstStartOffset && oldIlstSize != newIlstSize {
+		err = mp4.updateChunkOffsets(f, boxes, oldIlstSize, newIlstSize)
+	}
 	return err
 }
 
